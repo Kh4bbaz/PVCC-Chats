@@ -18,18 +18,22 @@ button { cursor:pointer; background:#4caf50; color:#fff; }
 #threadList, #chatWindow { max-height:300px; overflow-y:auto; border:1px solid #333; padding:8px; border-radius:8px; background:#1c1c1c; }
 .thread-item { padding:6px; border-bottom:1px solid #333; cursor:pointer; }
 .thread-item:hover { background:#333; }
-.message { margin-bottom:6px; }
+.message { margin-bottom:6px; padding:4px; border-radius:4px; }
+.message:hover { background:#333; cursor:pointer; }
 .username { font-weight:bold; color:#ffcc00; }
 img.chat-img { max-width:150px; border-radius:6px; display:block; margin-top:4px; }
+.replies { margin-left:20px; border-left:1px solid #444; padding-left:10px; margin-top:4px; }
+.reply { margin-bottom:4px; }
+.replyInput { padding:4px; border-radius:4px; border:none; margin-right:6px; }
 .hidden { display:none; }
 #msgInput { width: calc(100% - 70px); display:inline-block; }
 #sendMsgBtn { display:inline-block; }
 #sidebar { position:fixed; left:-220px; top:0; width:200px; height:100%; background:#222; padding:12px; transition:left 0.3s; border-right:1px solid #333; overflow-y:auto; z-index:1; }
 #sidebar h4 { color:#4caf50; margin:0 0 10px 0; }
 #menuBtn { position:fixed; top:20px; left:10px; background:#4caf50; border:none; border-radius:50%; width:40px; height:40px; cursor:pointer; display:none; transition: transform 0.3s; z-index:2; }
-.replies { margin-left:20px; border-left:1px solid #444; padding-left:10px; margin-top:4px; }
-.reply { margin-bottom:4px; }
-.replyInput { padding:4px; border-radius:4px; border:none; margin-right:6px; }
+#msgMenu { position:absolute; background:#444; border:1px solid #666; border-radius:6px; padding:6px; z-index:10; }
+#msgMenu button { display:block; margin:2px 0; background:#4caf50; color:#fff; border:none; border-radius:4px; padding:4px; width:100%; cursor:pointer; }
+iframe.youtube-short { width:250px; height:150px; margin-top:4px; border-radius:6px; border:none; }
 </style>
 </head>
 <body>
@@ -123,20 +127,23 @@ const OWNER_NAMES = ['khabbaz','khabbaz (owner)'];
 const OWNER_PASSWORD = 'hungrybooksound198';
 function isOwner(){ return OWNER_NAMES.includes(_usernameKey); }
 
-// ------------------ Show view ------------------
-function showView(view){ loginDiv.classList.add('hidden'); threadDiv.classList.add('hidden'); chatDiv.classList.add('hidden'); view.classList.remove('hidden'); }
+// ------------------ Views ------------------
+function showView(view){
+  loginDiv.classList.add('hidden');
+  threadDiv.classList.add('hidden');
+  chatDiv.classList.add('hidden');
+  view.classList.remove('hidden');
+}
 
 // ------------------ Login ------------------
 setUsernameBtn.onclick = () => {
   const input = usernameInput.value.trim();
   const key = input.toLowerCase();
   if(!input) return;
-
   if(OWNER_NAMES.includes(key)){
     const pwd = prompt("Enter owner password");
     if(pwd !== OWNER_PASSWORD){ alert("Wrong password"); return; }
   }
-
   username = input; _usernameKey = key;
   showView(threadDiv);
   menuBtn.style.display='block';
@@ -149,10 +156,203 @@ setUsernameBtn.onclick = () => {
   loadThreads(); loadOnlineUsers();
 };
 
-// ------------------ Threads & Chat functions remain the same ------------------
-// ... (rest of the JavaScript as before, including replies, messages, owner, sidebar)
+// ------------------ Back to Sign In ------------------
+backSignInBtn.onclick = () => {
+  onlineUsersRef.child(username).remove();
+  username = '';
+  _usernameKey = '';
+  showView(loginDiv);
+  menuBtn.style.display='none';
+  sidebar.style.left='-220px';
+};
+
+// ------------------ Threads ------------------
+createThreadBtn.onclick = () => {
+  const name = newThreadName.value.trim();
+  if(!name) return;
+  const pwd = threadPassword.value.trim() || '';
+  db.ref('threads/' + name).set({ password: pwd, creator: username });
+  newThreadName.value=''; threadPassword.value='';
+};
+
+function loadThreads(){
+  db.ref('threads').on('value', snapshot=>{
+    threadList.innerHTML='';
+    snapshot.forEach(child=>{
+      const t = child.key;
+      const li = document.createElement('div');
+      li.className='thread-item';
+      li.textContent = t;
+      li.onclick=()=>joinThread(t, child.val().password);
+      threadList.appendChild(li);
+    });
+  });
+}
+
+// ------------------ Join Thread ------------------
+function joinThread(name, pwd){
+  if(pwd && !isOwner()){
+    const pass = prompt("Enter thread password");
+    if(pass!==pwd){ alert("Incorrect password"); return; }
+    currentThreadPassword = pwd;
+  } else currentThreadPassword='';
+  currentThread=name;
+  showView(chatDiv);
+  threadTitle.textContent=name + (isOwner() ? " 👑" : "");
+  chatWindow.innerHTML='';
+  if(isOwner()) deleteThreadBtn.classList.remove('hidden');
+  else deleteThreadBtn.classList.add('hidden');
+  loadMessages();
+}
+
+// ------------------ Messages ------------------
+function loadMessages(){
+  db.ref('messages/'+currentThread).on('child_added', snapshot=>{
+    const msgId = snapshot.key;
+    const msg = snapshot.val();
+    renderMessage(msgId, msg);
+  });
+}
+
+function renderMessage(msgId, msg){
+  const div = document.createElement('div');
+  div.className='message';
+  div.dataset.msgId = msgId;
+
+  const timeStr = new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  div.innerHTML = `<span class="username">${msg.user}:</span> ${msg.text} <span style="color:#888;font-size:10px;">(${timeStr})</span>`;
+
+  if(msg.img) div.innerHTML += `<img src="${msg.img}" class="chat-img">`;
+
+  // YouTube Shorts preview
+  const ytMatch = msg.text.match(/https?:\/\/(www\.)?youtube\.com\/shorts\/[a-zA-Z0-9_-]+/);
+  if(ytMatch){
+    const videoId = ytMatch[0].split('/shorts/')[1].split(/[?&]/)[0];
+    div.innerHTML += `<iframe class="youtube-short" src="https://www.youtube.com/embed/${videoId}" allowfullscreen></iframe>`;
+  }
+
+  chatWindow.appendChild(div);
+  chatWindow.scrollTop = chatWindow.scrollHeight;
+
+  attachMessageMenu(div, msgId, msg);
+}
+
+// ------------------ Send Message ------------------
+sendMsgBtn.onclick = () => {
+  const text = msgInput.value.trim();
+  const file = imgInput.files[0];
+  if(!text && !file) return;
+
+  if(file){
+    const reader = new FileReader();
+    reader.onload = e=> sendToFirebase(text, e.target.result);
+    reader.readAsDataURL(file);
+  } else sendToFirebase(text,'');
+
+  msgInput.value=''; imgInput.value='';
+};
+
+function sendToFirebase(text, img){
+  db.ref('messages/'+currentThread).push({
+    user: username,
+    text: text,
+    img: img,
+    timestamp: Date.now()
+  });
+}
+
+// ------------------ Back to Threads ------------------
+backThreadsBtn.onclick = () => {
+  db.ref('messages/'+currentThread).off();
+  currentThread='';
+  showView(threadDiv);
+};
+
+// ------------------ Delete Thread ------------------
+deleteThreadBtn.onclick = () => {
+  if(!isOwner()) return;
+  const confirmDelete = confirm(`Delete thread "${currentThread}"? This cannot be undone.`);
+  if(!confirmDelete) return;
+  db.ref('threads/' + currentThread).remove();
+  db.ref('messages/' + currentThread).remove();
+  currentThread='';
+  showView(threadDiv);
+};
+
+// ------------------ Sidebar ------------------
+menuBtn.onclick = () => {
+  if(sidebar.style.left==='0px'){
+    sidebar.style.left='-220px';
+    menuBtn.style.transform='rotate(0deg)';
+  } else {
+    sidebar.style.left='0px';
+    menuBtn.style.transform='rotate(90deg)';
+  }
+};
+
+function loadOnlineUsers(){
+  onlineUsersRef.on('value', snapshot=>{
+    onlineUsersDiv.innerHTML='';
+    snapshot.forEach(child=>{
+      const div = document.createElement('div');
+      div.textContent = child.key + ' - Online';
+      onlineUsersDiv.appendChild(div);
+    });
+  });
+}
+
+// ------------------ Message menu ------------------
+function attachMessageMenu(div, msgId, msg){
+  div.onclick = (e)=>{
+    // remove old menu
+    const oldMenu = document.getElementById('msgMenu');
+    if(oldMenu) oldMenu.remove();
+
+    const menu = document.createElement('div');
+    menu.id='msgMenu';
+    menu.style.top = e.clientY + 'px';
+    menu.style.left = e.clientX + 'px';
+
+    menu.innerHTML = `
+      <button onclick="replyMessage('${msgId}')">Reply</button>
+      <button onclick="reactMessage('${msgId}')">Reactions</button>
+      <button onclick="copyMessageText('${msg.text}')">Copy</button>
+    `;
+    document.body.appendChild(menu);
+
+    document.addEventListener('click', function removeMenu(ev){
+      if(!menu.contains(ev.target)){
+        menu.remove();
+        document.removeEventListener('click', removeMenu);
+      }
+    }, {once:true});
+  };
+}
+
+// ------------------ Reply / React / Copy ------------------
+function replyMessage(msgId){
+  const replyText = prompt("Type your reply:");
+  if(!replyText) return;
+  db.ref(`replies/${currentThread}/${msgId}`).push({
+    user: username,
+    text: replyText,
+    timestamp: Date.now()
+  });
+}
+
+function reactMessage(msgId){
+  const reaction = prompt("Enter reaction emoji:");
+  if(!reaction) return;
+  db.ref(`reactions/${currentThread}/${msgId}`).push({
+    user: username,
+    emoji: reaction
+  });
+}
+
+function copyMessageText(text){
+  navigator.clipboard.writeText(text);
+  alert("Message copied!");
+}
 </script>
 </body>
 </html>
-
-
