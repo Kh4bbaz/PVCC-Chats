@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PVCC Chats</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body { font-family: Arial; background: #1e1e1e; color: #f0f0f0; margin:0; display:flex; justify-content:center; align-items:flex-start; padding:20px; min-height:100vh; }
+.container { width: 90%; max-width: 800px; background:#272727; padding:16px; border-radius:12px; display:flex; flex-direction:column; gap:16px; position:relative; }
+header { font-size:24px; font-weight:bold; color:#4caf50; }
+input, button { padding:8px; border-radius:6px; border:none; font-size:14px; }
+button { cursor:pointer; background:#4caf50; color:#fff; } /* green buttons */
+#version { position: fixed; bottom: 8px; right: 12px; font-size: 12px; color: #888; opacity: 0.7; }
+#threadList, #chatWindow { max-height:300px; overflow-y:auto; border:1px solid #333; padding:8px; border-radius:8px; background:#1c1c1c; }
+.thread-item { padding:6px; border-bottom:1px solid #333; cursor:pointer; }
+.thread-item:hover { background:#333; }
+.message { margin-bottom:6px; }
+.username { font-weight:bold; color:#ffcc00; }
+img.chat-img { max-width:150px; border-radius:6px; display:block; margin-top:4px; }
+.hidden { display:none; }
+#msgInput { width: calc(100% - 70px); display:inline-block; }
+#sendMsgBtn { display:inline-block; }
+#sidebar { position:fixed; left:-220px; top:0; width:200px; height:100%; background:#222; padding:12px; transition:left 0.3s; border-right:1px solid #333; overflow-y:auto; z-index:1; }
+#sidebar h4 { color:#4caf50; margin:0 0 10px 0; }
+#menuBtn { position:fixed; top:20px; left:10px; background:#4caf50; border:none; border-radius:50%; width:40px; height:40px; cursor:pointer; display:none; transition: transform 0.3s; z-index:2; } /* above sidebar */
+</style>
+</head>
+<body>
+<div id="version">Version 1.18 (Last Updated at 8:35PM 31/1/2026)</div>
+
+<div class="container">
+<header>PVCC Chats</header>
+
+<div id="loginDiv">
+<label>Enter Username: <input type="text" id="usernameInput"></label>
+<button id="setUsernameBtn">Set Username</button>
+</div>
+
+<div id="threadDiv" class="hidden">
+<h3>Threads</h3>
+<div id="threadList"></div>
+<input type="text" id="newThreadName" placeholder="Thread name">
+<input type="text" id="threadPassword" placeholder="Optional password">
+<button id="createThreadBtn">Create Thread</button>
+<button id="backSignInBtn">Back to Sign In</button>
+</div>
+
+<div id="chatDiv" class="hidden">
+<h3 id="threadTitle"></h3>
+<div id="chatWindow"></div>
+<input type="text" id="msgInput" placeholder="Type message">
+<button id="sendMsgBtn">Send</button>
+<input type="file" id="imgInput">
+<button id="backThreadsBtn">Back to Threads</button>
+<button id="deleteThreadBtn" class="hidden">Delete Thread</button>
+</div>
+</div>
+
+<button id="menuBtn">&#9776;</button>
+<div id="sidebar">
+<h4 id="sidebarUsername"></h4>
+<div id="onlineUsers"></div>
+</div>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script>
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyAEdntrjN4pP7ew3V9yFbxhIxahTYFlAJg",
+  authDomain: "pvcc-chats.firebaseapp.com",
+  databaseURL: "https://pvcc-chats-default-rtdb.firebaseio.com",
+  projectId: "pvcc-chats",
+  storageBucket: "pvcc-chats.firebasestorage.app",
+  messagingSenderId: "937968828585",
+  appId: "1:937968828585:web:a93f9cfc153fd5555f29b8",
+  measurementId: "G-C077T8DRFH"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// Global vars
+let username = '';
+let _usernameKey = '';
+let currentThread = '';
+let currentThreadPassword = '';
+let onlineUsersRef = db.ref('onlineUsers');
+
+// Elements
+const loginDiv = document.getElementById('loginDiv');
+const threadDiv = document.getElementById('threadDiv');
+const chatDiv = document.getElementById('chatDiv');
+const usernameInput = document.getElementById('usernameInput');
+const setUsernameBtn = document.getElementById('setUsernameBtn');
+const threadList = document.getElementById('threadList');
+const newThreadName = document.getElementById('newThreadName');
+const threadPassword = document.getElementById('threadPassword');
+const createThreadBtn = document.getElementById('createThreadBtn');
+const chatWindow = document.getElementById('chatWindow');
+const threadTitle = document.getElementById('threadTitle');
+const msgInput = document.getElementById('msgInput');
+const imgInput = document.getElementById('imgInput');
+const sendMsgBtn = document.getElementById('sendMsgBtn');
+const backThreadsBtn = document.getElementById('backThreadsBtn');
+const deleteThreadBtn = document.getElementById('deleteThreadBtn');
+const backSignInBtn = document.getElementById('backSignInBtn');
+const menuBtn = document.getElementById('menuBtn');
+const sidebar = document.getElementById('sidebar');
+const sidebarUsername = document.getElementById('sidebarUsername');
+const onlineUsersDiv = document.getElementById('onlineUsers');
+
+// Owner config
+const OWNER_NAMES = ['khabbaz', 'khabbaz (owner)'];
+const OWNER_PASSWORD = 'hungrybooksound198';
+
+function isOwner() {
+  return OWNER_NAMES.includes(_usernameKey);
+}
+
+// ------------------- Login -------------------
+setUsernameBtn.onclick = () => {
+  const input = usernameInput.value.trim();
+  const key = input.toLowerCase();
+
+  if (!input) return;
+
+  if (OWNER_NAMES.includes(key)) {
+    const pwd = prompt("Enter owner password");
+    if (pwd !== OWNER_PASSWORD) {
+      alert("Wrong password");
+      return;
+    }
+  }
+
+  username = input;
+  _usernameKey = key;
+
+  loginDiv.classList.add('hidden');
+  threadDiv.classList.remove('hidden');
+
+  menuBtn.style.display = 'block';
+  sidebar.style.left = '-220px';
+
+  sidebarUsername.textContent = username + (isOwner() ? " 👑" : "");
+
+  // Add self to online users
+  onlineUsersRef.child(username).set(true);
+  onlineUsersRef.child(username).onDisconnect().remove();
+
+  loadThreads();
+  loadOnlineUsers();
+};
+
+// ------------------- Back to Sign In -------------------
+backSignInBtn.onclick = () => {
+  onlineUsersRef.child(username).remove();
+  username = '';
+  _usernameKey = '';
+  loginDiv.classList.remove('hidden');
+  threadDiv.classList.add('hidden');
+  chatDiv.classList.add('hidden');
+  menuBtn.style.display = 'none';
+  sidebar.style.left = '-220px';
+};
+
+// ------------------- Threads -------------------
+createThreadBtn.onclick = () => {
+  const name = newThreadName.value.trim();
+  if(!name) return;
+  const pwd = threadPassword.value.trim() || '';
+  db.ref('threads/' + name).set({
+    password: pwd,
+    creator: username
+  });
+  newThreadName.value=''; threadPassword.value='';
+};
+
+function loadThreads(){
+  db.ref('threads').on('value', snapshot=>{
+    threadList.innerHTML='';
+    snapshot.forEach(child=>{
+      const t = child.key;
+      const li = document.createElement('div');
+      li.className='thread-item';
+      li.textContent = t;
+      li.onclick=()=>joinThread(t, child.val().password);
+      threadList.appendChild(li);
+    });
+  });
+}
+
+// ------------------- Join Thread -------------------
+function joinThread(name, pwd){
+  if(pwd && !isOwner()){
+    const pass = prompt("Enter thread password");
+    if(pass!==pwd){ alert("Incorrect password"); return; }
+    currentThreadPassword = pwd;
+  } else {
+    currentThreadPassword='';
+  }
+
+  currentThread=name;
+  threadDiv.classList.add('hidden');
+  chatDiv.classList.remove('hidden');
+  threadTitle.textContent=name + (isOwner() ? " 👑" : "");
+  chatWindow.innerHTML='';
+
+  if(isOwner()) deleteThreadBtn.classList.remove('hidden');
+  else deleteThreadBtn.classList.add('hidden');
+
+  loadMessages();
+}
+
+// ------------------- Messages -------------------
+function loadMessages(){
+  db.ref('messages/'+currentThread).on('child_added', snapshot=>{
+    const msg = snapshot.val();
+    const div = document.createElement('div');
+    div.className='message';
+
+    const time = new Date(msg.timestamp);
+    const timeStr = time.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+
+    div.innerHTML=`<span class="username">${msg.user}:</span> ${msg.text} <span style="color:#888;font-size:10px;">(${timeStr})</span>`;
+    if(msg.img) div.innerHTML+=`<img src="${msg.img}" class="chat-img">`;
+
+    chatWindow.appendChild(div);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+  });
+}
+
+// ------------------- Send Message -------------------
+sendMsgBtn.onclick = () => {
+  const text = msgInput.value.trim();
+  const file = imgInput.files[0];
+  if(!text && !file) return;
+
+  if(file){
+    const reader = new FileReader();
+    reader.onload = e=> sendToFirebase(text, e.target.result);
+    reader.readAsDataURL(file);
+  } else sendToFirebase(text,'');
+
+  msgInput.value=''; imgInput.value='';
+};
+
+function sendToFirebase(text, img){
+  db.ref('messages/'+currentThread).push({
+    user: username,
+    text: text,
+    img: img,
+    timestamp: Date.now()
+  });
+}
+
+// ------------------- Back to Threads -------------------
+backThreadsBtn.onclick = () => {
+  chatDiv.classList.add('hidden');
+  threadDiv.classList.remove('hidden');
+  db.ref('messages/'+currentThread).off();
+  currentThread='';
+};
+
+// ------------------- Delete Thread -------------------
+deleteThreadBtn.onclick = () => {
+  if(!isOwner()) return;
+  const confirmDelete = confirm(`Delete thread "${currentThread}"? This cannot be undone.`);
+  if(!confirmDelete) return;
+
+  db.ref('threads/' + currentThread).remove();
+  db.ref('messages/' + currentThread).remove();
+
+  chatDiv.classList.add('hidden');
+  threadDiv.classList.remove('hidden');
+  currentThread='';
+};
+
+// ------------------- Sidebar -------------------
+menuBtn.onclick = () => {
+  if(sidebar.style.left==='0px'){
+    sidebar.style.left='-220px';
+    menuBtn.style.transform='rotate(0deg)';
+  } else {
+    sidebar.style.left='0px';
+    menuBtn.style.transform='rotate(90deg)';
+  }
+};
+
+function loadOnlineUsers(){
+  onlineUsersRef.on('value', snapshot=>{
+    onlineUsersDiv.innerHTML='';
+    snapshot.forEach(child=>{
+      const div = document.createElement('div');
+      div.textContent = child.key + ' - Online';
+      onlineUsersDiv.appendChild(div);
+    });
+  });
+}
+</script>
+</body>
+</html>
